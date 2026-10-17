@@ -17,26 +17,28 @@ $root = Split-Path -Parent $PSScriptRoot
 $taskName = 'Codex Discord Personal MCP'
 Set-Location $root
 
-function Git { git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed" } }
+# PowerShell names are case-insensitive, so a function named Git would shadow git.exe.
+function Invoke-Git { git.exe @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed" } }
 
-$dirty = git status --porcelain --untracked-files=no
+$dirty = git.exe status --porcelain --untracked-files=no
 if ($dirty) { throw "Tracked files have local changes; commit them through a PR first:`n$dirty" }
 
-Git fetch --quiet --tags origin main
-git cat-file -e "$Commit^{commit}" 2>$null
+Invoke-Git fetch --quiet --tags origin main
+git.exe cat-file -e "$Commit^{commit}" 2>$null
 if ($LASTEXITCODE -ne 0) { throw "Commit $Commit is not in origin." }
-git merge-base --is-ancestor $Commit origin/main
+git.exe merge-base --is-ancestor $Commit origin/main
 if ($LASTEXITCODE -ne 0) { throw "Commit $Commit is not on origin/main, so it was never merged through review." }
 if ($Tag) {
-    $tagged = (git rev-parse "refs/tags/$Tag^{commit}").Trim()
+    $tagged = "$(git.exe rev-parse -q --verify "refs/tags/$Tag^{commit}")".Trim()
+    if (-not $tagged) { throw "Tag $Tag does not exist on origin." }
     if ($tagged -ne $Commit) { throw "Tag $Tag points at $tagged, not $Commit. Refusing to deploy." }
 }
 
 Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
 foreach ($p in (Get-NetTCPConnection -LocalPort 8085 -State Listen -ErrorAction SilentlyContinue).OwningProcess) { Stop-Process -Id $p -Force }
 
-Git -c advice.detachedHead=false checkout --quiet --detach $Commit
-if ((git rev-parse HEAD).Trim() -ne $Commit) { throw 'Checkout did not land on the requested commit.' }
+Invoke-Git -c advice.detachedHead=false checkout --quiet --detach $Commit
+if ((git.exe rev-parse HEAD).Trim() -ne $Commit) { throw 'Checkout did not land on the requested commit.' }
 
 & "$root\.venv\Scripts\python.exe" -m pip install --quiet --require-hashes --no-deps -r requirements-local.lock
 if ($LASTEXITCODE -ne 0) { throw 'Locked dependency install failed.' }
