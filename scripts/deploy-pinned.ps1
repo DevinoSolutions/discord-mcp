@@ -29,7 +29,8 @@ if ($LASTEXITCODE -ne 0) { throw "Commit $Commit is not in origin." }
 git.exe merge-base --is-ancestor $Commit origin/main
 if ($LASTEXITCODE -ne 0) { throw "Commit $Commit is not on origin/main, so it was never merged through review." }
 if ($Tag) {
-    $tagged = (git.exe rev-parse "refs/tags/$Tag^{commit}").Trim()
+    $tagged = "$(git.exe rev-parse -q --verify "refs/tags/$Tag^{commit}")".Trim()
+    if (-not $tagged) { throw "Tag $Tag does not exist on origin." }
     if ($tagged -ne $Commit) { throw "Tag $Tag points at $tagged, not $Commit. Refusing to deploy." }
 }
 
