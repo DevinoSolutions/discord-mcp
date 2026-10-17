@@ -68,11 +68,28 @@ access as this Windows user could change this local policy or decrypt its creden
 Automating a personal account is not a Discord-supported integration and violates
 Discord's self-bot policy; Discord may restrict or terminate the account.
 
-## Maintenance
+## Install and update (pinned)
 
-Source: https://github.com/Microck/discord.py-self-mcp
-Changes are on `local/protected-personal-http`. Do not replace them with an unreviewed
-upstream update. Do not run upstream setup tools that print the token in configuration.
+The source of truth is https://github.com/DevinoSolutions/discord-mcp. Installations
+never run a branch: each one runs one reviewed commit, so nothing pushed to GitHub
+reaches a machine on its own.
+
+1. `git clone https://github.com/DevinoSolutions/discord-mcp` and
+   `py -3.12 -m venv .venv` in the clone.
+2. Pick the release to run from the repo's Releases page and copy its full commit SHA.
+3. `.\scripts\deploy-pinned.ps1 -Commit <SHA> -Tag <tag>`. It refuses commits that
+   are not on `main` and tags that point elsewhere, checks out the commit detached,
+   installs `requirements-local.lock` with `--require-hashes`, and restarts the service.
+4. First install only: capture a session (below), run `scripts/configure_codex.py`,
+   then `scripts/install-startup.ps1`.
+
+To update, read the new release's diff, then run step 3 with its SHA. Never `git pull`
+in an installation. Propose changes as pull requests to `main`; upstream
+(Microck/discord.py-self-mcp) changes come in the same way, never as a direct merge.
+Do not run upstream setup tools that print the token in configuration.
+
+## Credentials
+
 If Discord expires/revokes the session, sign in again in the Stealth browser. Select
 an authenticated `https://discord.com/api/` request from that browser's network
 metadata, then run `.venv\Scripts\python.exe scripts/capture_network_session.py REQUEST_ID`.
