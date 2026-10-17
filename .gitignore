@@ -73,3 +73,5 @@ oauth-probe-url.txt
 *.lock
 .singleton.lock
 .deployed-commit
+!requirements-local.lock
+!requirements-test.lock
