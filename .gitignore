@@ -63,3 +63,12 @@ test_*.py
 ralph-loop.local.md
 AGENTS.md
 *.tgz
+
+# Private local installation
+credentials.dpapi
+oauth-probe.dpapi
+oauth-probe-result.json
+oauth-probe-url.txt
+*.log
+*.lock
+.singleton.lock

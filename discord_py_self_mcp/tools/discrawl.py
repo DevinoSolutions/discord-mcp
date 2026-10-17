@@ -1,6 +1,7 @@
 import asyncio
 import os
 import shutil
+import subprocess
 from pathlib import Path
 
 from mcp.types import TextContent, ImageContent, EmbeddedResource
@@ -108,19 +109,12 @@ async def _run_discrawl(
     cmd.append(command)
     cmd.extend(args)
 
-    process = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-
+    # Run in a thread: the Windows SelectorEventLoop has no asyncio subprocess support.
     try:
-        stdout, stderr = await asyncio.wait_for(
-            process.communicate(), timeout=timeout_seconds
+        process = await asyncio.to_thread(
+            subprocess.run, cmd, capture_output=True, timeout=timeout_seconds
         )
-    except asyncio.TimeoutError:
-        process.kill()
-        await process.wait()
+    except subprocess.TimeoutExpired:
         return _text(
             (
                 f"discrawl command timed out after {timeout_seconds}s\n"
@@ -128,8 +122,8 @@ async def _run_discrawl(
             )
         )
 
-    stdout_text = _truncate_output(stdout.decode("utf-8", errors="replace").strip())
-    stderr_text = _truncate_output(stderr.decode("utf-8", errors="replace").strip())
+    stdout_text = _truncate_output(process.stdout.decode("utf-8", errors="replace").strip())
+    stderr_text = _truncate_output(process.stderr.decode("utf-8", errors="replace").strip())
 
     parts = [
         f"command={' '.join(cmd)}",

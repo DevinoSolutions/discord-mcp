@@ -37,7 +37,6 @@ async def create_invite(arguments: dict):
             max_age=max_age,
             max_uses=max_uses,
             temporary=temporary,
-            validate=True,
         )
         return [TextContent(type="text", text=f"Created invite: {invite.url}")]
     except Exception as e:
@@ -61,7 +60,12 @@ async def list_invites(arguments: dict):
             return [TextContent(type="text", text="Guild not found")]
 
         invites = await guild.invites()
-        invite_list = [f"{i.code} (Uses: {i.uses})" for i in invites]
+        invite_list = [
+            f"{i.code} (Uses: {i.uses}) max_uses={i.max_uses or 'unlimited'} "
+            f"max_age={'never expires' if not i.max_age else f'{i.max_age}s'} "
+            f"channel=#{getattr(i.channel, 'name', '?')}"
+            for i in invites
+        ]
 
         if not invite_list:
             return [TextContent(type="text", text="No invites found")]

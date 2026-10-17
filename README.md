@@ -8,6 +8,16 @@
   comprehensive discord selfbot mcp server for full user autonomy.
 </p>
 
+> **Devino Solutions fork.** Adds a hardened always-on Windows service: a loopback-only
+> Streamable HTTP endpoint behind a local bearer token, DPAPI-encrypted credentials, an
+> allowlist of reviewed tools with a no-deletion policy, server-setup tools
+> (AutoMod, roles, channels, bot authorization), and an AFK session so the account's
+> phone keeps getting push notifications. See [LOCAL_SETUP.md](LOCAL_SETUP.md).
+> Upstream: [Microck/discord.py-self-mcp](https://github.com/Microck/discord.py-self-mcp).
+>
+> Automating a user account violates Discord's Terms of Service and can get the account
+> restricted or banned. Use at your own risk.
+
 <p align="center">
   <a href="https://github.com/Microck/discord.py-self-mcp/releases"><img src="https://img.shields.io/github/v/release/Microck/discord.py-self-mcp?display_name=tag&style=flat-square&label=release&color=000000" alt="release"></a>
   <a href="https://www.npmjs.com/package/discord-selfbot-mcp"><img src="https://flat.badgen.net/npm/dt/discord-selfbot-mcp?label=downloads&color=000000" alt="npm downloads"></a>

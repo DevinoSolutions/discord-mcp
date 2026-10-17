@@ -9,10 +9,11 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent, ImageContent, EmbeddedResource
 from discord_py_self_mcp.bot import client
-from discord_py_self_mcp.logging_utils import log_to_stderr, mask_secret
+from discord_py_self_mcp.logging_utils import log_to_stderr
 from discord_py_self_mcp.tools import registry
 
 app = Server("discord-selfbot-mcp")
+gateway_task = None
 
 
 @app.list_tools()
@@ -24,10 +25,13 @@ async def list_tools() -> list[Tool]:
 async def call_tool(
     name: str, arguments: dict
 ) -> list[TextContent | ImageContent | EmbeddedResource]:
+    if not client.is_ready():
+        raise RuntimeError('Discord is not connected yet. Retry after the connection is ready.')
     return await registry.call_tool(name, arguments)
 
 
 async def start_discord_client() -> None:
+    global gateway_task
     token = os.getenv("DISCORD_TOKEN")
     if not token:
         sys.stderr.write(
@@ -37,11 +41,12 @@ async def start_discord_client() -> None:
         raise SystemExit(1)
 
     log_to_stderr("[STARTUP] Starting Discord connection")
-    log_to_stderr(f"[STARTUP] DISCORD_TOKEN: {mask_secret(token)}")
-
-    # Do not await the long-lived gateway client: it runs alongside the MCP
-    # transport for the lifetime of this process.
-    asyncio.create_task(client.start(token))
+    await asyncio.wait_for(client.login(token), timeout=60)
+    expected = os.getenv('DISCORD_EXPECTED_USER_ID')
+    if expected and (not client.user or str(client.user.id) != expected):
+        await client.close()
+        raise RuntimeError('Discord account does not match the configured account.')
+    gateway_task = asyncio.create_task(client.connect())
 
 
 async def run_stdio() -> None:
@@ -94,8 +99,13 @@ def create_streamable_http_app(host: str = "127.0.0.1"):
     @asynccontextmanager
     async def lifespan(_starlette_app):
         await start_discord_client()
-        async with session_manager.run():
-            yield
+        try:
+            async with session_manager.run():
+                yield
+        finally:
+            await client.close()
+            if gateway_task:
+                gateway_task.cancel()
 
     return Starlette(routes=[Route("/mcp", endpoint=http_app)], lifespan=lifespan)
 

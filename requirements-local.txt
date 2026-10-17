@@ -1,0 +1,8 @@
+discord.py-self==2.1.0
+discord-protos==0.0.2
+mcp==1.30.0
+python-dotenv==1.2.3
+pynacl==1.6.2
+pywin32==312
+uvicorn==0.52.4
+jsonschema==4.26.0

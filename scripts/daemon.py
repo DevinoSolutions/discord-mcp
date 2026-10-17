@@ -90,7 +90,8 @@ def _get_token_or_exit() -> str:
 
 class DiscordDaemon:
     def __init__(self):
-        self.client = discord.Client()
+        # afk keeps Discord sending mobile pushes while this headless session is connected.
+        self.client = discord.Client(afk=True, idle_since=datetime.now(timezone.utc))
         self._connected = asyncio.Event()
         self._shutdown = asyncio.Event()
         self.server = None

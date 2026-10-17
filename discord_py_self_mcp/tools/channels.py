@@ -13,7 +13,7 @@ from .registry import registry
         "properties": {
             "guild_id": {"type": "string"},
             "name": {"type": "string"},
-            "type": {"type": "string", "enum": ["text", "voice"], "default": "text"},
+            "type": {"type": "string", "enum": ["text", "voice", "category"], "default": "text"},
             "category_id": {"type": "string", "description": "Optional category ID"}
         },
         "required": ["guild_id", "name"]
@@ -40,6 +40,9 @@ async def create_channel(arguments: dict):
         elif channel_type == "voice":
             await apply_rate_limit("action")
             channel = await guild.create_voice_channel(name, category=category)
+        elif channel_type == "category":
+            await apply_rate_limit("action")
+            channel = await guild.create_category(name)
         else:
             return [TextContent(type="text", text="Invalid channel type")]
 

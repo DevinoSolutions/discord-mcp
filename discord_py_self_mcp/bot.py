@@ -2,10 +2,11 @@ import discord
 import inspect
 import importlib
 import sys
+from datetime import datetime, timezone
 from typing import Dict, Any
 from google.protobuf import json_format
 from dotenv import load_dotenv
-from discord_py_self_mcp.captcha.solver import HCaptchaSolver
+from discord_py_self_mcp.local_safety import install_http_guard
 from discord_py_self_mcp.rate_limiter import (
     RateLimiter,
 )
@@ -51,7 +52,10 @@ captcha_solver = None
 class SelfBot(discord.Client):
     def __init__(self):
         init_rate_limiter()
-        super().__init__()
+        # This session never has a human at the keyboard. Without afk, Discord
+        # treats the account as active on desktop and withholds mobile pushes.
+        super().__init__(afk=True, idle_since=datetime.now(timezone.utc))
+        install_http_guard(self.http)
 
     async def on_ready(self):
         user_id = self.user.id if self.user else "unknown"
@@ -89,38 +93,7 @@ class SelfBot(discord.Client):
 
 
 async def solve_captcha() -> str:
-    global captcha_solver
-    log_to_stderr("[CAPTCHA] Triggered")
-
-    gemini_api_key = os.getenv("GEMINI_API_KEY")
-    if not gemini_api_key:
-        raise Exception(
-            "Cannot solve CAPTCHA: GEMINI_API_KEY is not set. Set it in your MCP client environment config."
-        )
-
-    if captcha_solver is None:
-        captcha_solver = HCaptchaSolver(
-            sitekey="a9b5fb07-92ff-493f-86fe-352a2803b3df",
-            host="discord.com",
-            debug=True,
-            proxy=os.getenv("CAPTCHA_PROXY"),
-            gemini_api_key=gemini_api_key,
-        )
-
-    try:
-        result = await captcha_solver.solve()
-    finally:
-        if captcha_solver is not None:
-            await captcha_solver.close()
-            captcha_solver = None
-
-    if result.get("success"):
-        log_to_stderr("[CAPTCHA] Solved successfully")
-        return result["token"]
-
-    error_text = result.get("error") or "unknown error"
-    log_to_stderr(f"[CAPTCHA] Failed: {error_text}")
-    raise Exception(f"Captcha solve failed: {error_text}")
+    raise RuntimeError('Discord requires human verification. Complete it in the browser.')
 
 
 client = SelfBot()

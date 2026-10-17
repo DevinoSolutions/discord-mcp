@@ -18,3 +18,4 @@ from . import profile as profile
 from . import folders as folders
 from . import overview as overview
 from . import discrawl as discrawl
+from . import server_setup as server_setup
