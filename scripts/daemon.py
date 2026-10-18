@@ -46,6 +46,7 @@ from discord_py_self_mcp.cli_runtime import (
     ensure_runtime_dir,
 )
 from discord_py_self_mcp.logging_utils import log_to_stderr
+from discord_py_self_mcp.presence import apply_headless_presence
 from discord_py_self_mcp.tool_utils import (
     NON_MESSAGEABLE_TEXT,
     build_reply_kwargs,
@@ -91,7 +92,12 @@ def _get_token_or_exit() -> str:
 class DiscordDaemon:
     def __init__(self):
         # afk keeps Discord sending mobile pushes while this headless session is connected.
-        self.client = discord.Client(afk=True, idle_since=datetime.now(timezone.utc))
+        # sync_presence=False + presence.py keep it idle instead of always online.
+        self.client = discord.Client(
+            afk=True,
+            idle_since=datetime.now(timezone.utc),
+            sync_presence=False,
+        )
         self._connected = asyncio.Event()
         self._shutdown = asyncio.Event()
         self.server = None
@@ -182,8 +188,15 @@ class DiscordDaemon:
 
         @self.client.event
         async def on_ready():
+            await apply_headless_presence(
+                self.client, getattr(self.client.settings, "status", None)
+            )
             log_to_stderr(f"[{datetime.now()}] Connected as {self.client.user}")
             self._connected.set()
+
+        @self.client.event
+        async def on_internal_settings_update(old_settings, new_settings):
+            await apply_headless_presence(self.client, new_settings.status)
 
         @self.client.event
         async def on_disconnect():

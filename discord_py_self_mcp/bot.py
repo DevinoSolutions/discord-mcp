@@ -7,6 +7,7 @@ from typing import Dict, Any
 from google.protobuf import json_format
 from dotenv import load_dotenv
 from discord_py_self_mcp.local_safety import install_http_guard
+from discord_py_self_mcp.presence import apply_headless_presence
 from discord_py_self_mcp.rate_limiter import (
     RateLimiter,
 )
@@ -54,10 +55,20 @@ class SelfBot(discord.Client):
         init_rate_limiter()
         # This session never has a human at the keyboard. Without afk, Discord
         # treats the account as active on desktop and withholds mobile pushes.
-        super().__init__(afk=True, idle_since=datetime.now(timezone.utc))
+        # sync_presence=False stops the library from mirroring the saved status
+        # (usually online) onto this session; presence.py reports idle instead.
+        super().__init__(
+            afk=True,
+            idle_since=datetime.now(timezone.utc),
+            sync_presence=False,
+        )
         install_http_guard(self.http)
 
+    async def on_internal_settings_update(self, old_settings, new_settings, /):
+        await apply_headless_presence(self, new_settings.status)
+
     async def on_ready(self):
+        await apply_headless_presence(self, getattr(self.settings, "status", None))
         user_id = self.user.id if self.user else "unknown"
         log_to_stderr(f"[READY] Logged in as {self.user} (ID: {user_id})")
         log_to_stderr(f"[READY] Guilds: {len(self.guilds)}")
