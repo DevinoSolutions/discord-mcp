@@ -60,9 +60,10 @@ def main():
     credentials = load_credentials()
     os.environ['DISCORD_TOKEN'] = credentials['discord_token']
     os.environ['DISCORD_EXPECTED_USER_ID'] = credentials['user_id']
-    from discord_py_self_mcp.main import create_streamable_http_app
-    from discord_py_self_mcp.bot import client
-    app = LocalAuth(create_streamable_http_app('127.0.0.1'), credentials['mcp_token'], client.is_ready)
+    from discord_py_self_mcp.main import create_streamable_http_app, is_connected
+    # The port opens before Discord logs in; /health stays 503 until READY and
+    # goes back to 503 whenever the gateway socket drops.
+    app = LocalAuth(create_streamable_http_app('127.0.0.1'), credentials['mcp_token'], is_connected)
     # Selector, not uvicorn's default Proactor loop on Windows: Proactor's accept loop
     # permanently closes the listening socket on WinError 64 (client reset mid-accept),
     # leaving the process alive with nothing on 8085.

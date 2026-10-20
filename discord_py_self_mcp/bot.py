@@ -2,6 +2,7 @@ import discord
 import inspect
 import importlib
 import sys
+import time
 from datetime import datetime, timezone
 from typing import Dict, Any
 from google.protobuf import json_format
@@ -57,17 +58,26 @@ class SelfBot(discord.Client):
         # treats the account as active on desktop and withholds mobile pushes.
         # sync_presence=False stops the library from mirroring the saved status
         # (usually online) onto this session; presence.py reports idle instead.
+        # chunk_guilds_at_startup=False: requesting every member of every guild
+        # before READY stalls the event loop for tens of seconds on a large
+        # account ("websocket is 11s behind", chunk timeouts). Tools fetch the
+        # members they need on demand instead.
         super().__init__(
             afk=True,
             idle_since=datetime.now(timezone.utc),
             sync_presence=False,
+            chunk_guilds_at_startup=False,
         )
+        # Monotonic time of the last READY; the gateway supervisor resets its
+        # backoff after a connection that reached READY.
+        self.last_ready_at = 0.0
         install_http_guard(self.http)
 
     async def on_internal_settings_update(self, old_settings, new_settings, /):
         await apply_headless_presence(self, new_settings.status)
 
     async def on_ready(self):
+        self.last_ready_at = time.monotonic()
         await apply_headless_presence(self, getattr(self.settings, "status", None))
         user_id = self.user.id if self.user else "unknown"
         log_to_stderr(f"[READY] Logged in as {self.user} (ID: {user_id})")
