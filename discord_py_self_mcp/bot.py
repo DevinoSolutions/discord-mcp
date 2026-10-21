@@ -2,7 +2,6 @@ import discord
 import inspect
 import importlib
 import sys
-import time
 from datetime import datetime, timezone
 from typing import Dict, Any
 from google.protobuf import json_format
@@ -68,16 +67,18 @@ class SelfBot(discord.Client):
             sync_presence=False,
             chunk_guilds_at_startup=False,
         )
-        # Monotonic time of the last READY; the gateway supervisor resets its
-        # backoff after a connection that reached READY.
-        self.last_ready_at = 0.0
+        # Counts READY and RESUMED events. The gateway supervisor resets its
+        # backoff after a connection attempt that moved this counter. A counter,
+        # not a timestamp: Windows' monotonic clock ticks every ~16ms, so a
+        # timestamp comparison can miss a READY in the same tick.
+        self.ready_count = 0
         install_http_guard(self.http)
 
     async def on_internal_settings_update(self, old_settings, new_settings, /):
         await apply_headless_presence(self, new_settings.status)
 
     async def on_ready(self):
-        self.last_ready_at = time.monotonic()
+        self.ready_count += 1
         await apply_headless_presence(self, getattr(self.settings, "status", None))
         user_id = self.user.id if self.user else "unknown"
         log_to_stderr(f"[READY] Logged in as {self.user} (ID: {user_id})")
@@ -103,6 +104,7 @@ class SelfBot(discord.Client):
         log_to_stderr(f"[ERROR] Event: {event}")
 
     async def on_resumed(self):
+        self.ready_count += 1
         log_to_stderr("[RESUMED] Session resumed")
 
     async def on_modal(self, modal):

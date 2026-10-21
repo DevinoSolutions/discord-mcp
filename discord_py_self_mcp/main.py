@@ -22,13 +22,14 @@ watchdog_task = None
 BACKOFF_START_SECONDS = 2.0
 BACKOFF_MAX_SECONDS = 60.0
 LOGIN_TIMEOUT_SECONDS = 60
-# Non-zero so Task Scheduler's restart-on-failure policy brings the service back.
-WATCHDOG_EXIT_CODE = 3
-FATAL_EXIT_CODE = 4
 NOT_CONNECTED_ERROR = 'Discord is not connected yet. Retry after the connection is ready.'
 
-# Indirection so tests can observe a process exit without ending the test run.
-_exit = os._exit
+# Set when Discord rejects the session (wrong account or revoked token). Retrying
+# cannot fix that and repeated logins with a bad token look abusive, so the
+# supervisor stops, the HTTP server keeps answering, and every tool call and
+# /health report this until the credentials are recaptured.
+fatal_error: str | None = None
+_token: str | None = None
 
 
 class AccountMismatch(RuntimeError):
@@ -77,6 +78,8 @@ async def list_tools() -> list[Tool]:
 async def call_tool(
     name: str, arguments: dict
 ) -> list[TextContent | ImageContent | EmbeddedResource]:
+    if fatal_error:
+        raise RuntimeError(fatal_error)
     # Ride out a reconnect or a fresh start instead of failing the first call.
     if not await wait_until_connected(_env_seconds('DISCORD_READY_WAIT_SECONDS', 20)):
         raise RuntimeError(NOT_CONNECTED_ERROR)
@@ -102,18 +105,27 @@ async def _login(token: str) -> None:
         raise AccountMismatch('Discord account does not match the configured account.')
 
 
+def connection_status() -> str:
+    """'ready', 'connecting', or 'error' (Discord rejected the session)."""
+    if fatal_error:
+        return 'error'
+    return 'ready' if is_connected() else 'connecting'
+
+
 async def run_gateway(token: str, *, logged_in: bool = False) -> None:
     """Keep the gateway connected for the life of the process.
 
     client.connect() only retries the errors discord.py-self knows about; anything
     else used to end the gateway task silently while the process stayed up and
-    /health said "connecting" forever. Every failure is logged here and retried
-    with capped exponential backoff plus jitter. A wrong account or a rejected
-    token cannot be fixed by retrying, so those end the process instead.
+    /health said "connecting" forever. Every failure, including a login that
+    times out under load, is logged here and retried with capped exponential
+    backoff plus jitter. A wrong account or a rejected token cannot be fixed by
+    retrying, so those stop the supervisor and set fatal_error instead.
     """
+    global fatal_error
     delay = BACKOFF_START_SECONDS
     while True:
-        attempt_started = time.monotonic()
+        ready_before = getattr(client, 'ready_count', 0)
         try:
             if not logged_in:
                 if client.is_closed():
@@ -126,12 +138,20 @@ async def run_gateway(token: str, *, logged_in: bool = False) -> None:
             await client.connect()
             log_to_stderr("[GATEWAY] Connection loop ended")
         except (AccountMismatch, discord.LoginFailure) as exc:
-            log_to_stderr(f"[GATEWAY] Fatal: {type(exc).__name__}: {exc}. Exiting.")
-            _exit(FATAL_EXIT_CODE)
+            fatal_error = (
+                f"Discord rejected the session ({type(exc).__name__}: {exc}). "
+                "Recapture the credentials, then restart the service."
+            )
+            log_to_stderr(f"[GATEWAY] Fatal, not retrying: {type(exc).__name__}: {exc}")
+            await client.close()
             return
         except Exception as exc:
             log_to_stderr(f"[GATEWAY] {type(exc).__name__}: {exc}")
-        if getattr(client, 'last_ready_at', 0.0) > attempt_started:
+            if not logged_in:
+                # A half-finished login (timeout) leaves the HTTP session in an
+                # unknown state; start the next attempt from a closed client.
+                await client.close()
+        if getattr(client, 'ready_count', 0) > ready_before:
             delay = BACKOFF_START_SECONDS
         if client.is_closed():
             # connect() closes the client on unrecoverable close codes; log in again.
@@ -142,11 +162,30 @@ async def run_gateway(token: str, *, logged_in: bool = False) -> None:
         delay = min(BACKOFF_MAX_SECONDS, delay * 2)
 
 
-async def watchdog(threshold: float, *, interval: float | None = None) -> None:
-    """Exit the process when Discord stays disconnected for threshold seconds.
+async def restart_gateway(reason: str) -> None:
+    """Tear the Discord client down and start a fresh login, in this process.
 
-    The supervisor cannot recover from every state (a hung socket, a login that
-    never completes). Exiting non-zero hands recovery to the service manager.
+    The HTTP listener stays up throughout, so MCP clients never see a refused
+    connection. Task Scheduler does not restart a task whose process exited with
+    a non-zero code, so exiting would leave the service down for good.
+    """
+    global gateway_task
+    log_to_stderr(f"[WATCHDOG] {reason}. Restarting the Discord connection.")
+    if gateway_task:
+        gateway_task.cancel()
+        await asyncio.gather(gateway_task, return_exceptions=True)
+    await client.close()
+    if fatal_error or not _token:
+        gateway_task = None
+        return
+    gateway_task = asyncio.create_task(run_gateway(_token), name='discord-gateway')
+
+
+async def watchdog(threshold: float, *, interval: float | None = None) -> None:
+    """Restart the Discord connection when it stays down for threshold seconds.
+
+    The supervisor cannot recover from every state (a socket that hangs without
+    erroring, a connect() that never returns). A fresh client covers those.
     """
     if interval is None:
         interval = max(1.0, min(15.0, threshold / 10))
@@ -154,17 +193,14 @@ async def watchdog(threshold: float, *, interval: float | None = None) -> None:
     while True:
         await asyncio.sleep(interval)
         now = time.monotonic()
-        if is_connected():
+        if is_connected() or fatal_error:
             down_since = now
             continue
         if now - down_since >= threshold:
-            log_to_stderr(
-                f"[WATCHDOG] Discord not connected for {now - down_since:.0f}s "
-                f"(limit {threshold:.0f}s). Exiting with code {WATCHDOG_EXIT_CODE} "
-                "so the service manager restarts the process."
+            await restart_gateway(
+                f"Discord not connected for {now - down_since:.0f}s (limit {threshold:.0f}s)"
             )
-            _exit(WATCHDOG_EXIT_CODE)
-            return
+            down_since = time.monotonic()
 
 
 async def start_discord_client(
@@ -175,8 +211,9 @@ async def start_discord_client(
     With background_login the call returns at once and the login happens inside
     the supervisor, so an HTTP listener can bind before Discord answers.
     """
-    global gateway_task, watchdog_task
+    global gateway_task, watchdog_task, _token
     token = _require_token()
+    _token = token
     log_to_stderr("[STARTUP] Starting Discord connection")
     if not background_login:
         await _login(token)
@@ -191,10 +228,12 @@ async def start_discord_client(
 
 async def stop_discord_client() -> None:
     global gateway_task, watchdog_task
-    tasks = [task for task in (watchdog_task, gateway_task) if task]
-    for task in tasks:
-        task.cancel()
-    await asyncio.gather(*tasks, return_exceptions=True)
+    # Cancel the watchdog first so it cannot start a new gateway mid-shutdown.
+    for name in ('watchdog_task', 'gateway_task'):
+        task = globals()[name]
+        if task:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
     gateway_task = watchdog_task = None
     await client.close()
 

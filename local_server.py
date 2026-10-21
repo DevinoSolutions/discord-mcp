@@ -33,8 +33,11 @@ class LocalAuth:
                 await JSONResponse({'error': 'Origin not allowed'}, status_code=403)(scope, receive, send)
                 return
             if scope['path'] == '/health' and scope['method'] == 'GET':
-                ready = self.ready()
-                await JSONResponse({'status': 'ready' if ready else 'connecting'}, status_code=200 if ready else 503)(scope, receive, send)
+                # ready() returns a bool or a status string ('ready', 'connecting', 'error').
+                status = self.ready()
+                if isinstance(status, bool):
+                    status = 'ready' if status else 'connecting'
+                await JSONResponse({'status': status}, status_code=200 if status == 'ready' else 503)(scope, receive, send)
                 return
             if not hmac.compare_digest(headers.get(b'authorization', b''), self.expected):
                 await JSONResponse({'error': 'Unauthorized'}, status_code=401)(scope, receive, send)
@@ -60,10 +63,11 @@ def main():
     credentials = load_credentials()
     os.environ['DISCORD_TOKEN'] = credentials['discord_token']
     os.environ['DISCORD_EXPECTED_USER_ID'] = credentials['user_id']
-    from discord_py_self_mcp.main import create_streamable_http_app, is_connected
-    # The port opens before Discord logs in; /health stays 503 until READY and
-    # goes back to 503 whenever the gateway socket drops.
-    app = LocalAuth(create_streamable_http_app('127.0.0.1'), credentials['mcp_token'], is_connected)
+    from discord_py_self_mcp.main import connection_status, create_streamable_http_app
+    # The port opens before Discord logs in; /health stays 503 until READY, goes
+    # back to 503 whenever the gateway socket drops, and reports 'error' if
+    # Discord rejected the session.
+    app = LocalAuth(create_streamable_http_app('127.0.0.1'), credentials['mcp_token'], connection_status)
     # Selector, not uvicorn's default Proactor loop on Windows: Proactor's accept loop
     # permanently closes the listening socket on WinError 64 (client reset mid-accept),
     # leaving the process alive with nothing on 8085.
