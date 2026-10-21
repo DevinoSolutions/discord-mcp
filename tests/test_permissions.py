@@ -492,3 +492,24 @@ async def test_set_category_permissions_can_skip_children(monkeypatch):
 
     assert child.calls == []
     assert "synced" not in result[0].text
+
+
+@pytest.mark.asyncio
+async def test_set_channel_permissions_fetches_a_member_missing_from_the_cache(monkeypatch):
+    # Members are not chunked at startup, so an uncached member comes from the API.
+    member = FakeRole(role_id=78, name="uncached")
+
+    class FetchingGuild(FakeGuild):
+        async def fetch_member(self, user_id):
+            assert user_id == 78
+            return member
+
+    channel = FakeChannel(guild=FetchingGuild())
+    monkeypatch.setattr(permissions, "client", FakeClient(channel=channel))
+
+    result = await permissions.set_channel_permissions(
+        {"channel_id": "500", "target_id": "78", "target_type": "member", "deny": ["send_messages"]}
+    )
+
+    assert channel.calls[0][0] is member
+    assert "Set permissions for uncached" in result[0].text

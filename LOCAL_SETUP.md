@@ -46,6 +46,15 @@ holds an exclusive process lock to prevent multiple Discord connections. Runtime
 logs are in `server.log`. This is a native Windows singleton, not the original bot
 Docker container. The Codex server entry is named `discord-mcp`.
 
+The port opens immediately at startup; the Discord login runs in the background,
+and `/health` answers `503 connecting` until the gateway is READY (and again
+whenever its socket drops). A supervisor logs and retries every gateway failure
+with backoff (2s doubling to 60s, reset after READY). Tool calls wait up to
+`DISCORD_READY_WAIT_SECONDS` (default 20) for the connection before failing. If
+Discord stays disconnected for `DISCORD_WATCHDOG_SECONDS` (default 300), the
+process exits with code 3 so the task's restart policy starts a fresh one; a
+wrong account or rejected token exits with code 4.
+
 ## Enforced restrictions
 
 - Only reviewed tool names are exposed and callable; new upstream tools are denied.

@@ -9,12 +9,18 @@ from .registry import registry
 from .roles import _hierarchy_block, _parse_permissions
 
 
-def _resolve_target(guild, target_id: str, target_type: str):
+async def _resolve_target(guild, target_id: str, target_type: str):
     """Return ``(target, error_text)`` for a role or member id."""
     if target_type == "role":
         target = guild.get_role(int(target_id))
     elif target_type == "member":
+        # Members are not chunked at startup, so fall back to the API.
         target = guild.get_member(int(target_id))
+        if target is None:
+            try:
+                target = await guild.fetch_member(int(target_id))
+            except discord.NotFound:
+                target = None
     else:
         return None, f"Invalid target_type '{target_type}' — use 'role' or 'member'"
 
@@ -195,7 +201,7 @@ async def set_channel_permissions(arguments: dict):
         if not channel:
             return [TextContent(type="text", text="Channel not found")]
 
-        target, error = _resolve_target(
+        target, error = await _resolve_target(
             channel.guild, arguments["target_id"], arguments["target_type"]
         )
         if error:
@@ -253,7 +259,7 @@ async def patch_channel_permissions(arguments: dict):
         if not channel:
             return [TextContent(type="text", text="Channel not found")]
 
-        target, error = _resolve_target(
+        target, error = await _resolve_target(
             channel.guild, arguments["target_id"], arguments["target_type"]
         )
         if error:
@@ -316,7 +322,7 @@ async def remove_channel_permissions(arguments: dict):
         if not channel:
             return [TextContent(type="text", text="Channel not found")]
 
-        target, error = _resolve_target(
+        target, error = await _resolve_target(
             channel.guild, arguments["target_id"], arguments["target_type"]
         )
         if error:
@@ -382,7 +388,7 @@ async def set_category_permissions(arguments: dict):
         if not category or not isinstance(category, discord.CategoryChannel):
             return [TextContent(type="text", text="Category not found")]
 
-        target, error = _resolve_target(
+        target, error = await _resolve_target(
             category.guild, arguments["target_id"], arguments["target_type"]
         )
         if error:
@@ -452,7 +458,7 @@ async def inspect_effective_permissions(arguments: dict):
         if not guild:
             return [TextContent(type="text", text="Guild not found")]
 
-        target, error = _resolve_target(
+        target, error = await _resolve_target(
             guild, arguments["target_id"], arguments["target_type"]
         )
         if error:
