@@ -174,3 +174,10 @@ def test_the_startup_task_keeps_restarting_the_service():
 
     script = (Path(main.__file__).parent.parent / "scripts" / "install-startup.ps1").read_text(encoding="utf-8")
     assert "-RestartCount 999 " in script
+
+
+def test_a_deploy_survives_the_listener_exiting_before_it_is_stopped():
+    from pathlib import Path
+
+    script = (Path(main.__file__).parent.parent / "scripts" / "deploy-pinned.ps1").read_text(encoding="utf-8")
+    assert "Stop-Process -Id $p -Force -ErrorAction SilentlyContinue" in script
