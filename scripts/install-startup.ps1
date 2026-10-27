@@ -15,7 +15,7 @@ if ($discordExisting -and $discordExisting.Actions.Execute -ne $discordPython) {
 $discordAction = New-ScheduledTaskAction -Execute $discordPython -Argument ('"' + $discordEntry + '"') -WorkingDirectory $discordRoot
 $discordTrigger = New-ScheduledTaskTrigger -AtLogOn -User $discordUser
 $discordPrincipal = New-ScheduledTaskPrincipal -UserId $discordUser -LogonType Interactive -RunLevel Limited
-$discordSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 10 -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew
+$discordSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew
 Register-ScheduledTask -TaskName $discordTaskName -Action $discordAction -Trigger $discordTrigger -Principal $discordPrincipal -Settings $discordSettings -Description 'Authenticated localhost Discord MCP for the current personal account, with sensitive deletions blocked.' -Force | Out-Null
 Start-ScheduledTask -TaskName $discordTaskName
 Write-Output 'Installed and started the persistent Discord MCP task.'

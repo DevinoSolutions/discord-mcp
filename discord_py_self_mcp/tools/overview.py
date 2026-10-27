@@ -202,7 +202,7 @@ async def _sample_guild(guild, messages_per_guild: int, sample_channels: int) ->
     samples: list[dict[str, Any]] = []
     for channel in selected:
         try:
-            await apply_rate_limit("action")
+            await apply_rate_limit("read")
             async for message in channel.history(limit=per_channel):
                 samples.append(_sample_message(channel, message))
                 if len(samples) >= messages_per_guild:
