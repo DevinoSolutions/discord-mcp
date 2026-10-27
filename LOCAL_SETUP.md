@@ -34,6 +34,10 @@ and policy control inaccessible to that agent.
 ## Connection
 
 Persistent Streamable HTTP: `http://127.0.0.1:8085/mcp`.
+The transport is stateless: no MCP session lives in this process, so a client
+stays connected through idle hours and through service restarts. (A stateful
+session was dropped after 30 idle minutes and on every restart, and each Claude
+Code session then showed the server as disconnected until reconnected by hand.)
 An independent local bearer token authenticates MCP requests.
 Health: `http://127.0.0.1:8085/health` (connection status only).
 Discord credentials and the local bearer token are encrypted using Windows DPAPI
@@ -41,7 +45,7 @@ for this Windows user in `credentials.dpapi`, which is excluded from Git.
 The Discord token is not stored in the Codex configuration.
 
 Windows Task Scheduler task: `Codex Discord Personal MCP`. It starts at this user's
-Windows login, restarts on failure, and runs without a console window. The service
+Windows login, restarts on failure (up to 999 times, one minute apart), and runs without a console window. The service
 holds an exclusive process lock to prevent multiple Discord connections. Runtime
 logs are in `server.log`. This is a native Windows singleton, not the original bot
 Docker container. The Codex server entry is named `discord-mcp`.
@@ -54,6 +58,12 @@ with backoff (2s doubling to 60s, reset after READY). Tool calls wait up to
 Discord stays disconnected for `DISCORD_WATCHDOG_SECONDS` (default 300), the
 process exits with code 3 so the task's restart policy starts a fresh one; a
 wrong account or rejected token exits with code 4.
+
+Rate limits are shared by every client on the machine: writes 5/min (a 60s
+cooldown when exceeded), messages 10/min, and reads (`read_messages`,
+`search_messages`, `list_pings`, server overview samples) their own 30/min
+budget (`RATE_LIMIT_READS_PER_MINUTE`) that never waits out a write cooldown.
+Log lines from the supervisor and the rate limiter carry UTC timestamps.
 
 ## Enforced restrictions
 

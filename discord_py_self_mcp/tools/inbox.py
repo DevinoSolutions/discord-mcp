@@ -124,7 +124,7 @@ async def list_pings(arguments: dict):
         if not isinstance(unread_only, bool):
             raise ValueError("unread_only must be a boolean")
 
-        await apply_rate_limit("action")
+        await apply_rate_limit("read")
         mentions = []
         async for message in client.recent_mentions(limit=limit, guild=guild, roles=roles, everyone=everyone):
             if not unread_only or _is_unread(message):

@@ -99,7 +99,7 @@ async def read_messages(arguments: dict):
         if not isinstance(channel, discord.abc.Messageable):
             return [TextContent(type="text", text=NON_MESSAGEABLE_TEXT)]
 
-        await apply_rate_limit("action")
+        await apply_rate_limit("read")
         messages = []
         async for msg in channel.history(limit=limit):
             messages.append(format_message_line(msg))
@@ -145,7 +145,7 @@ async def search_messages(arguments: dict):
         if not isinstance(channel, discord.abc.Messageable):
             return [TextContent(type="text", text=NON_MESSAGEABLE_TEXT)]
 
-        await apply_rate_limit("action")
+        await apply_rate_limit("read")
         messages = []
         # Basic filtering using history since standard search API is not always reliable in selfbots without indexing
         async for msg in channel.history(limit=min(limit * 2, limit + 100)):

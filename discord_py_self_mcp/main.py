@@ -112,6 +112,11 @@ def connection_status() -> str:
     return 'ready' if is_connected() else 'connecting'
 
 
+def _http_session_gone(exc: BaseException) -> bool:
+    """discord.py's HTTP client was torn down (its session is the MISSING sentinel)."""
+    return isinstance(exc, AttributeError) and '_MissingSentinel' in str(exc)
+
+
 async def run_gateway(token: str, *, logged_in: bool = False) -> None:
     """Keep the gateway connected for the life of the process.
 
@@ -147,6 +152,11 @@ async def run_gateway(token: str, *, logged_in: bool = False) -> None:
             return
         except Exception as exc:
             log_to_stderr(f"[GATEWAY] {type(exc).__name__}: {exc}")
+            if logged_in and _http_session_gone(exc):
+                # Seen in server.log: connect() kept failing on an HTTP session
+                # that was already torn down, until the watchdog stepped in.
+                # Only a fresh login rebuilds it.
+                logged_in = False
             if not logged_in:
                 # A half-finished login (timeout) leaves the HTTP session in an
                 # unknown state; start the next attempt from a closed client.
@@ -284,8 +294,15 @@ def create_streamable_http_app(host: str = "127.0.0.1"):
         allowed_hosts=allowed_hosts,
         allowed_origins=allowed_origins,
     )
+    # Stateless: every request stands alone, so there is no per-client session to
+    # lose. A stateful manager kept each MCP client's session in this process's
+    # memory, dropped it after 30 idle minutes (the SDK's session_idle_timeout)
+    # and lost all of them on every restart; the next call from each Claude Code
+    # session then failed with "session not found" and the server showed as
+    # disconnected until someone reconnected it by hand, fleet-wide. No tool
+    # here streams progress or calls back into the client, so nothing needs one.
     session_manager = StreamableHTTPSessionManager(
-        app=app, security_settings=security_settings
+        app=app, security_settings=security_settings, stateless=True
     )
     http_app = StreamableHTTPASGIApp(session_manager)
 

@@ -13,6 +13,7 @@ class RateLimitConfig:
     messages_per_minute: int = 10
     messages_per_second: int = 1
     actions_per_minute: int = 5
+    reads_per_minute: int = 30
     cooldown_on_limit: int = 60
 
 
@@ -22,6 +23,10 @@ class RateLimiter:
 
         self._message_timestamps: list = []
         self._action_timestamps: list = []
+        self._read_timestamps: list = []
+        # Reads have their own lock: the write lock is held while a write sleeps
+        # out its cooldown, and reads must not queue behind that.
+        self._read_lock = asyncio.Lock()
         self._cooldown_until: float = 0
         self._lock = asyncio.Lock()
 
@@ -35,6 +40,7 @@ class RateLimiter:
             messages_per_minute=int(os.getenv("RATE_LIMIT_MESSAGES_PER_MINUTE", "10")),
             messages_per_second=int(os.getenv("RATE_LIMIT_MESSAGES_PER_SECOND", "1")),
             actions_per_minute=int(os.getenv("RATE_LIMIT_ACTIONS_PER_MINUTE", "5")),
+            reads_per_minute=int(os.getenv("RATE_LIMIT_READS_PER_MINUTE", "30")),
             cooldown_on_limit=int(os.getenv("RATE_LIMIT_COOLDOWN", "60")),
         )
 
@@ -45,8 +51,31 @@ class RateLimiter:
         remaining = self._cooldown_until - time.time()
         return max(0, int(remaining))
 
+    async def _wait_for_read(self) -> None:
+        """Pace reads within reads_per_minute without the fleet-wide cooldown.
+
+        Every Claude Code session on the machine shares this one account. Reads
+        used to spend the 5/min write budget, and one burst then froze every
+        session behind a 60s cooldown, long enough for clients to give up on
+        the server. A full read window now just waits for its oldest read to
+        age out, and a write cooldown never blocks a read.
+        """
+        async with self._read_lock:
+            while True:
+                self._clean_timestamps(self._read_timestamps, 60)
+                if len(self._read_timestamps) < self.config.reads_per_minute:
+                    self._read_timestamps.append(time.time())
+                    return
+                await asyncio.sleep(
+                    max(0.05, 60 - (time.time() - self._read_timestamps[0]))
+                )
+
     async def wait_if_needed(self, action_type: str = "message"):
         if not self.is_enabled():
+            return
+
+        if action_type == "read":
+            await self._wait_for_read()
             return
 
         async with self._lock:
@@ -118,20 +147,24 @@ class RateLimiter:
     def reset(self):
         self._message_timestamps.clear()
         self._action_timestamps.clear()
+        self._read_timestamps.clear()
         self._cooldown_until = 0
 
     def get_stats(self) -> Dict[str, Any]:
         self._clean_timestamps(self._message_timestamps, 60)
         self._clean_timestamps(self._action_timestamps, 60)
+        self._clean_timestamps(self._read_timestamps, 60)
         return {
             "enabled": self.is_enabled(),
             "cooldown_remaining": self.get_cooldown_remaining(),
             "messages_last_minute": len(self._message_timestamps),
             "actions_last_minute": len(self._action_timestamps),
+            "reads_last_minute": len(self._read_timestamps),
             "config": {
                 "messages_per_minute": self.config.messages_per_minute,
                 "messages_per_second": self.config.messages_per_second,
                 "actions_per_minute": self.config.actions_per_minute,
+                "reads_per_minute": self.config.reads_per_minute,
             },
         }
 

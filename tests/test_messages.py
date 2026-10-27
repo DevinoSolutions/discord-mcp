@@ -204,7 +204,7 @@ async def test_read_messages_includes_attachment_metadata(monkeypatch):
     assert "message_id=123" in result[0].text
     assert "[Attachment 0] photo.png" in result[0].text
     assert "url=https://cdn.discordapp.com/photo.png" in result[0].text
-    assert rate_limit_calls == ["action"]
+    assert rate_limit_calls == ["read"]
 
 
 @pytest.mark.asyncio
@@ -304,6 +304,6 @@ async def test_search_messages_applies_rate_limit_and_caps_fetch_window(monkeypa
         {"channel_id": "1", "query": "hello", "limit": 500}
     )
 
-    assert rate_limit_calls == ["action"]
+    assert rate_limit_calls == ["read"]
     assert fake_channel.last_history_limit == 300
     assert "message_id=" in result[0].text
