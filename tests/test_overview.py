@@ -163,7 +163,7 @@ async def test_sample_server_content_prefers_general_and_skips_ticket_channels(m
             "content": "Useful update",
         }
     ]
-    assert rate_limit_calls == ["action"]
+    assert rate_limit_calls == ["read"]
 
 
 @pytest.mark.asyncio
@@ -188,7 +188,7 @@ async def test_sample_server_content_rate_limits_each_selected_channel(monkeypat
         {"guild_ids": ["1"], "messages_per_guild": 2, "sample_channels_per_guild": 2}
     )
 
-    assert rate_limit_calls == ["action", "action"]
+    assert rate_limit_calls == ["read", "read"]
 
 
 def test_overview_requires_batches_when_the_default_guild_set_is_too_large(monkeypatch):
