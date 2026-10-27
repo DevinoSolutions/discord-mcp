@@ -35,7 +35,10 @@ if ($Tag) {
 }
 
 Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-foreach ($p in (Get-NetTCPConnection -LocalPort 8085 -State Listen -ErrorAction SilentlyContinue).OwningProcess) { Stop-Process -Id $p -Force }
+# Stop-ScheduledTask usually ends the listener already, so the process can be gone by the
+# time Stop-Process runs; under ErrorActionPreference=Stop that used to abort the deploy with
+# the service stopped and the old commit still checked out (2026-10-27).
+foreach ($p in (Get-NetTCPConnection -LocalPort 8085 -State Listen -ErrorAction SilentlyContinue).OwningProcess) { Stop-Process -Id $p -Force -ErrorAction SilentlyContinue }
 
 Invoke-Git -c advice.detachedHead=false checkout --quiet --detach $Commit
 if ((git.exe rev-parse HEAD).Trim() -ne $Commit) { throw 'Checkout did not land on the requested commit.' }
