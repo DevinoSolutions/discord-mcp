@@ -34,9 +34,12 @@ class FakeClient:
         self.login_outcomes = []
         self._ready = False
         self._closed = False
+        self.http = SimpleNamespace(_started=True)
+        self.http_started_at_login = []
 
     async def login(self, token):
         self.logins += 1
+        self.http_started_at_login.append(self.http._started)
         if self.login_gate is not None:
             await self.login_gate.wait()
         if self.login_outcomes:

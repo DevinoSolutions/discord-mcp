@@ -117,6 +117,18 @@ def _http_session_gone(exc: BaseException) -> bool:
     return isinstance(exc, AttributeError) and '_MissingSentinel' in str(exc)
 
 
+def _rebuild_http_on_next_request(http) -> None:
+    """Make discord.py-self build fresh HTTP sessions on its next request.
+
+    HTTPClient.startup() builds the sessions once and returns early while
+    `_started` is True. close() and clear() drop the sessions but never reset
+    that flag, so after the first close every login failed on the MISSING
+    sentinel until the process restarted (server.log 2026-10-27, 21:56-22:54Z:
+    eleven watchdog restarts, none recovered).
+    """
+    http._started = False
+
+
 async def run_gateway(token: str, *, logged_in: bool = False) -> None:
     """Keep the gateway connected for the life of the process.
 
@@ -137,6 +149,7 @@ async def run_gateway(token: str, *, logged_in: bool = False) -> None:
                     # close() unbinds the event loop and login() only binds a
                     # fresh client, so reset both before logging in again.
                     client.clear()
+                    _rebuild_http_on_next_request(client.http)
                     await client._async_setup_hook()
                 await _login(token)
                 logged_in = True

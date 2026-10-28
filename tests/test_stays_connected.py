@@ -181,3 +181,50 @@ def test_a_deploy_survives_the_listener_exiting_before_it_is_stopped():
 
     script = (Path(main.__file__).parent.parent / "scripts" / "deploy-pinned.ps1").read_text(encoding="utf-8")
     assert "Stop-Process -Id $p -Force -ErrorAction SilentlyContinue" in script
+
+
+@pytest.mark.asyncio
+async def test_a_closed_discord_http_client_builds_fresh_sessions_after_the_reset(monkeypatch):
+    # The real discord.py-self HTTPClient; only the user-agent lookup is stubbed,
+    # because Headers.default fetches Discord's client build number over the network.
+    from types import SimpleNamespace
+
+    from discord import http as discord_http, utils as discord_utils
+
+    async def offline_headers(cls, session, proxy=None, proxy_auth=None):
+        return SimpleNamespace(user_agent="test-agent", super_properties={"client_build_number": 1})
+
+    monkeypatch.setattr(discord_utils.Headers, "default", classmethod(offline_headers))
+    http = discord_http.HTTPClient(loop=asyncio.get_running_loop())
+    session = lambda: http._HTTPClient__session  # noqa: E731
+
+    await http.startup()
+    await http.close()
+    http.clear()
+    await http.startup()
+    # The library's own path: startup() is a no-op after close, so the session
+    # stays the MISSING sentinel and every request raises the AttributeError.
+    assert session() is discord_utils.MISSING
+
+    main._rebuild_http_on_next_request(http)
+    await http.startup()
+    try:
+        assert session() is not discord_utils.MISSING
+        assert not session()._closed
+    finally:
+        await http.close()
+
+
+@pytest.mark.asyncio
+async def test_every_fresh_login_after_a_close_starts_from_a_rebuildable_http_client(monkeypatch, sleeps):  # noqa: F811
+    fake = FakeClient(["closed-by-library", "hang"])
+    monkeypatch.setattr(main, "client", fake)
+
+    task = asyncio.create_task(main.run_gateway("token", logged_in=True))
+    await _until(lambda: fake.connects == 2)
+    await _cancel(task)
+
+    # The library closed the client, so the supervisor logged in again, and
+    # it reset the HTTP client first instead of reusing its dead sessions.
+    assert fake.logins == 1
+    assert fake.http_started_at_login == [False]
